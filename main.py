@@ -12,39 +12,69 @@ from phonenumbers import (
 
 app = FastAPI(
     title="Number Info API",
-    description="Phone-number metadata API",
-    version="2.0.0",
+    version="2.1.0"
 )
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["GET"],
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
 OWNER = "@TheRealSanatani"
 
 
-def lookup_number(number: str, region: str | None = None):
-    try:
-        parsed = phonenumbers.parse(number, region)
-    except NumberParseException:
+@app.get("/")
+async def root():
+    return {
+        "status": "success",
+        "message": "Number Info API is online",
+        "version": "2.1.0",
+        "endpoint": "/api/number",
+        "owner": OWNER
+    }
+
+
+@app.get("/health")
+async def health():
+    return {
+        "status": "success",
+        "message": "API is running"
+    }
+
+
+@app.get("/api/number")
+async def number_info(
+    number: str = Query(...),
+    region: str | None = Query(None)
+):
+    started = perf_counter()
+
+    number = number.strip()
+
+    if not number:
         raise HTTPException(
             status_code=400,
-            detail="Invalid phone number format"
+            detail="Number is required"
+        )
+
+    try:
+        parsed = phonenumbers.parse(number, region)
+    except NumberParseException as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid phone number: {e}"
         )
 
     possible = phonenumbers.is_possible_number(parsed)
+    valid = phonenumbers.is_valid_number(parsed)
 
     if not possible:
         raise HTTPException(
             status_code=400,
             detail="Impossible phone number"
         )
-
-    valid = phonenumbers.is_valid_number(parsed)
 
     country_code = parsed.country_code
     national_number = str(parsed.national_number)
@@ -83,16 +113,15 @@ def lookup_number(number: str, region: str | None = None):
         PhoneNumberFormat.E164
     )
 
-    return {
-        "mobile": national_number,
+    elapsed = (perf_counter() - started) * 1000
 
+    result = {
+        "mobile": national_number,
         "name": "",
         "fname": "",
         "id": "",
-
         "circle": country_name,
         "address": location,
-
         "email": "",
         "alt": "",
 
@@ -100,48 +129,19 @@ def lookup_number(number: str, region: str | None = None):
         "country_iso": region_code,
         "carrier": carrier_name,
         "timezone": zones,
-
         "international": international,
         "e164": e164,
-
         "valid": valid,
-        "possible": possible,
+        "possible": possible
     }
 
-
-@app.get("/")
-async def root():
     return {
         "status": "success",
-        "message": "Number Info API",
-        "version": "2.0.0",
-        "endpoint": "/api/number",
-        "docs": "/docs",
-        "owner": OWNER,
+        "count": 1,
+        "search_time": f"{elapsed:.2f}ms",
+        "results": [result],
+        "owner": OWNER
     }
-
-
-@app.get("/health")
-async def health():
-    return {
-        "status": "success",
-        "message": "API is running",
-    }
-
-
-@app.get("/api/number")
-async def number_info(
-    number: str = Query(
-        ...,
-        description="Phone number"
-    ),
-    region: str | None = Query(
-        None,
-        description="ISO-2 region, e.g. IN"
-    ),
-):
-    started = perf_counter()
-
     number = number.strip()
 
     if not number:
